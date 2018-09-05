@@ -4,7 +4,7 @@ import logging
 
 import python_http_client
 
-from .client import Client
+from .types import *
 
 
 logger = logging.getLogger("paggcerto")
@@ -24,38 +24,49 @@ PRODUCTION_HOST = 'https://api-recorrencia.paggcerto.com.br/v1/'
 SANDBOX_HOST = 'https://sandbox-recorrencia.paggcerto.com.br/v1/'
 
 
+class Auth:
+    def __init__(self, user, password):
+        self.user = user
+        self.password = password
+
+    def request_authorization_header(self, client):
+        try:
+            response = client.core.auth.post(request_body={
+                'username': self.user,
+                'pass': self.password
+            })
+            token = response.to_dict['token']
+            return {
+                "Authorization": f"Bearer {token}"
+            }
+        except python_http_client.HTTPError as e:
+            logger.exception(f"error on auth {e.to_dict}")
+            raise
+
+
+class NoAuth(Auth):
+    def __init__(self):
+        pass
+
+    def request_authorization_header(self, client):
+        return {}
+
+
 class PaggcertoAPIClient:
 
-    def __init__(self, api_user=API_USER, api_password=API_PASSWORD, use_sandbox=API_USE_SANDBOX):
-        self._api_user = api_user
-        self._api_password = api_password
+    def __init__(self, auth=None, use_sandbox=API_USE_SANDBOX):
+        self._auth = auth or Auth(API_USER, API_PASSWORD)
+        self._use_sandbox = use_sandbox
 
-        self._use_sandbox = API_USE_SANDBOX
-
-        self._token = None
-
-        self._client = python_http_client.Client(
-            host=SANDBOX_HOST if self._use_sandbox else PRODUCTION_HOST
-        )
+        self._client = None
 
     @property
     def client(self):
-        if not self._token:
-            self._token = self._request_token()
+        if not self._client:
+            self._client = python_http_client.Client(
+                host=SANDBOX_HOST if self._use_sandbox else PRODUCTION_HOST
+            )
 
-            self._client.request_headers = {
-                "Authorization": f"Bearer {self._token}"
-            }
+            self._client.request_headers = self._auth.request_authorization_header(self._client)
 
         return self._client
-
-    def _request_token(self):
-        try:
-            response = self._client.core.auth.post(request_body={
-                'username': self._api_user,
-                'pass': self._api_password
-            })
-            return response.to_dict['token']
-        except Exception:
-            logger.exception(f"error on auth {e.to_dict}")
-            raise
